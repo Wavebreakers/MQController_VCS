@@ -59,12 +59,15 @@ namespace MQController
         private string queueName;
         private string replyQueueName;
         private string userId;
+        private int waitReplyInterval;
+        private bool needReply;
+        private bool withApplicationIdData;
 
         MQQueueManager mqQueueManager = null;
         MQQueue mqQueue = null;
         MQQueue mqReplyQueue = null;
 
-        public MQClient(string _userId, string _queueName, string _replyQueueName, string _managerName, string _channel, string _host, string _port = "1414")
+        public MQClient(string _userId, string _queueName, string _replyQueueName, string _managerName, string _channel, string _host, string _port = "1414", string _waitReplyInterval = "15000", string _needReply = "true", string _withApplicationIdData = "true")
         {
             userId = _userId;
             queueName = _queueName;
@@ -73,6 +76,22 @@ namespace MQController
             channel = _channel;
             host = _host;
             port = _port;
+            waitReplyInterval = int.Parse(_waitReplyInterval);
+            if (_needReply == "false")
+            {
+                needReply = false;
+            }
+            else
+            {
+                needReply = true;
+            }
+            if (_withApplicationIdData == "false")
+            {
+                withApplicationIdData = false;
+            } else
+            {
+                withApplicationIdData = true;
+            }
             MQEnvironment.Hostname = host;
             MQEnvironment.Port = int.Parse(port);
             MQEnvironment.Channel = channel;
@@ -142,7 +161,10 @@ namespace MQController
                 request.UserId = userId;
                 request.PutApplicationName = PUT_APPLICATION_NAME;
                 request.PutApplicationType = 28; /// 0b11100
-                request.ApplicationIdData = applicationIdData;
+                if (withApplicationIdData)
+                {
+                    request.ApplicationIdData = applicationIdData;
+                }
                 request.MessageId = messageId;
                 request.Format = MQC.MQFMT_STRING;
                 request.CharacterSet = 950;
@@ -158,12 +180,15 @@ namespace MQController
                 responseInit = new MQGetMessageOptions();
                 responseInit.Options = MQC.MQGMO_FAIL_IF_QUIESCING | MQC.MQGMO_WAIT;
                 responseInit.MatchOptions = MQC.MQMO_MATCH_MSG_ID;
-                responseInit.WaitInterval = 15000; /// ms
+                responseInit.WaitInterval = waitReplyInterval; /// default 15000ms
 
                 try
                 {
                     //mqReplyQueue.ClearErrorCodes();
-                    mqReplyQueue.Get(response, responseInit);
+                    if (needReply)
+                    {
+                        mqReplyQueue.Get(response, responseInit);
+                    }
                     result["success"] = true;
                 }
                 catch (Exception error)
@@ -171,7 +196,15 @@ namespace MQController
                     result["message"] = string.Format("[Error][{0}]{1}", error.Source, error.Message);
                     return result;
                 }
-                result["message"] = response.ReadString(response.MessageLength);
+                if (needReply)
+                {
+                    result["message"] = response.ReadString(response.MessageLength);
+                }
+                else
+                {
+                    result["message"] = "Successfully Send Message";
+                }
+
             }
             catch (MQException error)
             {
@@ -299,14 +332,8 @@ namespace MQController
 
             MQClient client;
 
-            if (configure["MQ"]["PORT"] == null)
-            {
-                client = new MQClient(configure["MQ"]["USER_ID"], configure["MQ"]["QUEUE_NAME"], configure["MQ"]["REPLY_QUEUE_NAME"], configure["MQ"]["MANAGER_NAME"], configure["MQ"]["CHANNEL"], configure["MQ"]["HOST"]);
-            } else
-            {
-                client = new MQClient(configure["MQ"]["USER_ID"], configure["MQ"]["QUEUE_NAME"], configure["MQ"]["REPLY_QUEUE_NAME"], configure["MQ"]["MANAGER_NAME"], configure["MQ"]["CHANNEL"], configure["MQ"]["HOST"], configure["MQ"]["PORT"]);
-            }
-            
+            client = new MQClient(configure["MQ"]["USER_ID"], configure["MQ"]["QUEUE_NAME"], configure["MQ"]["REPLY_QUEUE_NAME"], configure["MQ"]["MANAGER_NAME"], configure["MQ"]["CHANNEL"], configure["MQ"]["HOST"], configure["MQ"]["PORT"], configure["MQ"]["WAIT_REPLY_INTERVAL"], configure["MQ"]["NEED_REPLY"], configure["MQ"]["WITH_APPLICATION_ID_DATA"]);
+
             try
             {
                 client.Connect();
